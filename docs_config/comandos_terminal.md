@@ -1,12 +1,12 @@
-# Guia Definitivo de Comandos, Dependências e Configurações — Clínica API (Nível 2)
+# Guia Definitivo de Comandos e Criação Automatizada — Clínica API (Nível 2)
 
-Documento consolidado com todos os comandos de terminal, dependências atualizadas (2026), arquivos de código completos (NestJS, TypeScript, ESLint v10 Flat Config, Prettier, Husky v9, Commitlint, Jest), banco de dados PostgreSQL com Prisma 7, Redis, BullMQ, RBAC, Prontuário LGPD, Filas e Docker Compose.
+Documento consolidado com todos os comandos de terminal, automação via `cat << 'EOF'` para criação instantânea de arquivos no Git Bash, dependências atualizadas (2026), arquivos de código completos (NestJS, TypeScript, ESLint v10 Flat Config, Prettier, Husky v9, Commitlint, Jest), banco de dados PostgreSQL com Prisma 7, Redis, BullMQ, RBAC, Prontuário LGPD, Filas e Docker Compose.
 
 ---
 
 ## ÍNDICE DE PASSOS E FEATURES
 
-1. [PASSO 1 — feature/init (Scaffold, TypeScript, Tooling, Health Check e Swagger)](#1-passo-1--featureinit-scaffold-tooling-e-swagger)
+1. [PASSO 1 — feature/init (Scaffold, TypeScript, Tooling, Health Check, CI e Swagger)](#1-passo-1--featureinit-scaffold-tooling-e-swagger)
 2. [PASSO 2 — feature/prisma (Schema Relacional, Driver Adapter PG, Migrations e Seed)](#2-passo-2--featureprisma-banco-de-dados-e-seed)
 3. [PASSO 3 — feature/auth-rbac (Autenticação JWT, Refresh Token, Decorators e Guards)](#3-passo-3--featureauth-rbac-autenticacao-e-permissoes)
 4. [PASSO 4 — feature/appointments (Motor de Agendamento, Conflitos e Cache Redis)](#4-passo-4--featureappointments-agendamento-e-cache)
@@ -56,12 +56,13 @@ npm install @nestjs/common @nestjs/core @nestjs/platform-express @nestjs/config 
 npm install -D @nestjs/cli @nestjs/schematics typescript @types/node @types/express @types/bcrypt @types/passport-jwt @types/multer prisma tsx rimraf pino-pretty eslint @typescript-eslint/parser @typescript-eslint/eslint-plugin eslint-config-prettier eslint-plugin-prettier prettier husky lint-staged @commitlint/cli @commitlint/config-conventional jest ts-jest @types/jest jest-mock-extended
 ```
 
-### 1.3 Inicialização de Ferramental
+### 1.3 Inicialização de Ferramental e Pastas
 
 ```bash
-# Inicializar Prisma e Husky
+# Inicializar Prisma, Husky e pastas essenciais
 npx prisma init
 npx husky
+mkdir -p .github/workflows src
 
 # Configurar ganchos do Husky
 echo "npx lint-staged" > .husky/pre-commit
@@ -69,11 +70,10 @@ echo "npm test" > .husky/pre-push
 echo 'npx --no -- commitlint --edit "$1"' > .husky/commit-msg
 ```
 
-### 1.4 Arquivos de Configuração da feature/init
+### 1.4 Criação Automatizada dos Arquivos da feature/init
 
-#### `.gitignore`
-
-```gitignore
+```bash
+cat << 'EOF' > .gitignore
 # Dependencies
 node_modules/
 
@@ -118,11 +118,9 @@ frontend/dist/
 .agents/
 .claude/
 .windsurf/
-```
+EOF
 
-#### `.env.example` e `.env`
-
-```env
+cat << 'EOF' > .env.example
 PORT=3000
 NODE_ENV=development
 DATABASE_URL=postgresql://postgres:dev@localhost:5433/clinica
@@ -134,11 +132,11 @@ JWT_EXPIRES_IN=15m
 JWT_REFRESH_EXPIRES_IN=7d
 CORS_ORIGIN=http://localhost:5173
 LOG_LEVEL=debug
-```
+EOF
 
-#### `docker-compose.yml`
+cp .env.example .env
 
-```yaml
+cat << 'EOF' > docker-compose.yml
 services:
   app:
     build: .
@@ -189,11 +187,9 @@ services:
 volumes:
   postgres_data:
   redis_data:
-```
+EOF
 
-#### `Dockerfile`
-
-```dockerfile
+cat << 'EOF' > Dockerfile
 FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
@@ -212,11 +208,85 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1
 CMD ["node", "dist/main.js"]
-```
+EOF
 
-#### `tsconfig.json`
+cat << 'EOF' > .github/workflows/ci.yml
+name: CI
 
-```json
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: clinica_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout do repositorio
+        uses: actions/checkout@v4
+
+      - name: Setup do Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Gerar Prisma Client
+        run: npx prisma generate
+
+      - name: Checagem de Tipos TypeScript
+        run: npx tsc --noEmit
+
+      - name: Validar Linter (ESLint)
+        run: npm run lint
+
+      - name: Validar Formatacao (Prettier)
+        run: npm run format:check
+
+      - name: Executar Testes Unitarios
+        run: npm run test:ci
+        env:
+          DATABASE_URL: postgresql://postgres:test@localhost:5432/clinica_test
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+          JWT_SECRET: ci-test-secret-key-123456789
+          JWT_REFRESH_SECRET: ci-test-refresh-secret-key-987654321
+          NODE_ENV: test
+
+      - name: Compilar Projeto (Build)
+        run: npm run build
+EOF
+
+cat << 'EOF' > tsconfig.json
 {
   "compilerOptions": {
     "module": "commonjs",
@@ -239,6 +309,7 @@ CMD ["node", "dist/main.js"]
     "strictBindCallApply": true,
     "forceConsistentCasingInFileNames": true,
     "noFallthroughCasesInSwitch": true,
+    "strictPropertyInitialization": false,
     "types": ["node", "jest"],
     "paths": {
       "@/*": ["src/*"]
@@ -247,11 +318,9 @@ CMD ["node", "dist/main.js"]
   "include": ["src/**/*", "prisma.config.ts"],
   "exclude": ["node_modules", "dist", "generated"]
 }
-```
+EOF
 
-#### `tsconfig.build.json`
-
-```json
+cat << 'EOF' > tsconfig.build.json
 {
   "extends": "./tsconfig.json",
   "exclude": [
@@ -264,11 +333,9 @@ CMD ["node", "dist/main.js"]
     "prisma.config.ts"
   ]
 }
-```
+EOF
 
-#### `nest-cli.json`
-
-```json
+cat << 'EOF' > nest-cli.json
 {
   "$schema": "https://json.schemastore.org/nest-cli",
   "collection": "@nestjs/schematics",
@@ -277,11 +344,228 @@ CMD ["node", "dist/main.js"]
     "deleteOutDir": true
   }
 }
-```
+EOF
 
-#### `src/main.ts`
+cat << 'EOF' > eslint.config.mjs
+import tsParser from '@typescript-eslint/parser';
+import tsPlugin from '@typescript-eslint/eslint-plugin';
+import prettierPlugin from 'eslint-plugin-prettier';
+import prettierConfig from 'eslint-config-prettier';
 
-```typescript
+export default [
+  {
+    files: ['src/**/*.ts'],
+    languageOptions: {
+      parser: tsParser,
+      parserOptions: {
+        ecmaVersion: 'latest',
+        sourceType: 'module',
+      },
+    },
+    plugins: {
+      '@typescript-eslint': tsPlugin,
+      prettier: prettierPlugin,
+    },
+    rules: {
+      ...tsPlugin.configs.recommended.rules,
+      'prettier/prettier': 'error',
+      '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+        },
+      ],
+      'no-console': 'error',
+    },
+  },
+  prettierConfig,
+  {
+    ignores: [
+      'dist/**',
+      'node_modules/**',
+      'coverage/**',
+      'generated/**',
+      'docs_config/**',
+      '*.config.ts',
+      '*.config.js',
+      '*.config.mjs',
+      '*.config.cjs',
+    ],
+  },
+];
+EOF
+
+cat << 'EOF' > jest.config.cjs
+/** @type {import('jest').Config} */
+module.exports = {
+  testEnvironment: 'node',
+  testMatch: ['**/*.spec.ts', '**/*.test.ts'],
+  moduleNameMapper: {
+    '^@/(.*)$': '<rootDir>/src/$1',
+    '^(\\./.*)\\.js$': '$1',
+    '^(\\.\\./.*)\\.js$': '$1',
+  },
+  transform: {
+    '^.+\\.tsx?$': [
+      'ts-jest',
+      {
+        tsconfig: {
+          module: 'commonjs',
+          moduleResolution: 'node16',
+          target: 'ES2022',
+          verbatimModuleSyntax: false,
+          ignoreDeprecations: '6.0',
+        },
+      },
+    ],
+  },
+};
+EOF
+
+cat << 'EOF' > commitlint.config.mjs
+export default {
+  extends: ['@commitlint/config-conventional'],
+};
+EOF
+
+cat << 'EOF' > .prettierrc.json
+{
+  "semi": true,
+  "trailingComma": "es5",
+  "singleQuote": true,
+  "printWidth": 100,
+  "tabWidth": 2,
+  "useTabs": false,
+  "arrowParens": "always",
+  "endOfLine": "auto"
+}
+EOF
+
+cat << 'EOF' > .lintstagedrc.json
+{
+  "src/**/*.ts": [
+    "eslint --fix",
+    "prettier --write",
+    "jest --bail --findRelatedTests --passWithNoTests"
+  ],
+  "*.json": ["prettier --write"],
+  "*.md": ["prettier --write"]
+}
+EOF
+
+cat << 'EOF' > prisma.config.ts
+import 'dotenv/config';
+import { defineConfig } from 'prisma/config';
+
+export default defineConfig({
+  schema: 'prisma/schema.prisma',
+  migrations: {
+    path: 'prisma/migrations',
+  },
+  datasource: {
+    url: process.env['DATABASE_URL'],
+  },
+});
+EOF
+
+cat << 'EOF' > src/app.service.ts
+import { Injectable } from '@nestjs/common';
+
+@Injectable()
+export class AppService {
+  getHealth(): { status: string; timestamp: string; uptime: number } {
+    return {
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+    };
+  }
+}
+EOF
+
+cat << 'EOF' > src/app.controller.ts
+import { Controller, Get } from '@nestjs/common';
+import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { AppService } from './app.service';
+
+@ApiTags('Health')
+@Controller('health')
+export class AppController {
+  constructor(private readonly appService: AppService) {}
+
+  @Get()
+  @ApiOperation({ summary: 'Verificar status de integridade da API' })
+  @ApiResponse({
+    status: 200,
+    description: 'API operando normalmente',
+  })
+  getHealth() {
+    return this.appService.getHealth();
+  }
+}
+EOF
+
+cat << 'EOF' > src/app.controller.spec.ts
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+
+describe('AppController', () => {
+  let appController: AppController;
+  let appService: AppService;
+
+  beforeEach(() => {
+    appService = new AppService();
+    appController = new AppController(appService);
+  });
+
+  describe('getHealth', () => {
+    it('should return health status ok', () => {
+      const result = appController.getHealth();
+      expect(result.status).toBe('ok');
+      expect(result.timestamp).toBeDefined();
+      expect(result.uptime).toBeGreaterThanOrEqual(0);
+    });
+  });
+});
+EOF
+
+cat << 'EOF' > src/app.module.ts
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { LoggerModule } from 'nestjs-pino';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+    }),
+    LoggerModule.forRoot({
+      pinoHttp: {
+        level: process.env.LOG_LEVEL || 'info',
+        transport:
+          process.env.NODE_ENV !== 'production'
+            ? {
+                target: 'pino-pretty',
+                options: {
+                  singleLine: true,
+                  colorize: true,
+                },
+              }
+            : undefined,
+      },
+    }),
+  ],
+  controllers: [AppController],
+  providers: [AppService],
+})
+export class AppModule {}
+EOF
+
+cat << 'EOF' > src/main.ts
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -350,81 +634,7 @@ async function bootstrap() {
 }
 
 void bootstrap();
-```
-
-#### `src/app.module.ts`
-
-```typescript
-import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
-import { LoggerModule } from 'nestjs-pino';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
-
-@Module({
-  imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-    }),
-    LoggerModule.forRoot({
-      pinoHttp: {
-        level: process.env.LOG_LEVEL || 'info',
-        transport:
-          process.env.NODE_ENV !== 'production'
-            ? {
-                target: 'pino-pretty',
-                options: {
-                  singleLine: true,
-                  colorize: true,
-                },
-              }
-            : undefined,
-      },
-    }),
-  ],
-  controllers: [AppController],
-  providers: [AppService],
-})
-export class AppModule {}
-```
-
-#### `src/app.controller.ts` e `src/app.service.ts`
-
-```typescript
-// src/app.service.ts
-import { Injectable } from '@nestjs/common';
-
-@Injectable()
-export class AppService {
-  getHealth(): { status: string; timestamp: string; uptime: number } {
-    return {
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
-    };
-  }
-}
-
-// src/app.controller.ts
-import { Controller, Get } from '@nestjs/common';
-import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { AppService } from './app.service';
-
-@ApiTags('Health')
-@Controller('health')
-export class AppController {
-  constructor(private readonly appService: AppService) {}
-
-  @Get()
-  @ApiOperation({ summary: 'Verificar status de integridade da API' })
-  @ApiResponse({
-    status: 200,
-    description: 'API operando normalmente',
-  })
-  getHealth() {
-    return this.appService.getHealth();
-  }
-}
+EOF
 ```
 
 ### 1.5 Validação e Transição Git da feature/init
@@ -434,7 +644,7 @@ export class AppController {
 npx tsc --noEmit
 npm run lint
 npm run format:check
-npm test
+npm run test:ci
 npm run build
 docker compose config
 
@@ -457,18 +667,20 @@ git push origin --delete feature/init
 
 ## 2. PASSO 2 — feature/prisma (Banco de Dados e Seed)
 
-### 2.1 Criar a Branch
+### 2.1 Criar a Branch e Pastas
 
 ```bash
 git checkout -b feature/prisma
 git push -u origin feature/prisma
+
+# Criar pasta para serviços de banco de dados
+mkdir -p src/database
 ```
 
-### 2.2 Arquivos da feature/prisma
+### 2.2 Criação Automatizada dos Arquivos da feature/prisma
 
-#### `prisma/schema.prisma` (Modelagem Completa com LGPD e RBAC)
-
-```prisma
+```bash
+cat << 'EOF' > prisma/schema.prisma
 generator client {
   provider = "prisma-client"
   output   = "../generated/prisma"
@@ -590,11 +802,9 @@ model AuditLog {
   @@index([resource])
   @@map("audit_logs")
 }
-```
+EOF
 
-#### `src/database/prisma.service.ts` (Driver Adapter PG para Prisma 7)
-
-```typescript
+cat << 'EOF' > src/database/prisma.service.ts
 import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { PrismaClient } from '../../generated/prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
@@ -618,11 +828,9 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     await this.$disconnect();
   }
 }
-```
+EOF
 
-#### `src/database/prisma.module.ts`
-
-```typescript
+cat << 'EOF' > src/database/prisma.module.ts
 import { Global, Module } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
 
@@ -632,11 +840,9 @@ import { PrismaService } from './prisma.service';
   exports: [PrismaService],
 })
 export class PrismaModule {}
-```
+EOF
 
-#### `prisma/seed.ts` (Criação de Usuários de Teste)
-
-```typescript
+cat << 'EOF' > prisma/seed.ts
 import 'dotenv/config';
 import bcrypt from 'bcrypt';
 import pg from 'pg';
@@ -664,7 +870,7 @@ async function main() {
   });
 
   // 2. Médica (Dra. Fernanda)
-  await prisma.user.upsert({
+  const doctorUser = await prisma.user.upsert({
     where: { email: 'dra.fernanda@clinica.com.br' },
     update: {},
     create: {
@@ -725,6 +931,7 @@ main()
   .finally(async () => {
     await prisma.$disconnect();
   });
+EOF
 ```
 
 ### 2.3 Comandos de Execução e Transição Git
@@ -764,27 +971,387 @@ git push origin --delete feature/prisma
 
 ## 3. PASSO 3 — feature/auth-rbac (Autenticação e Permissões)
 
-### 3.1 Criar a Branch
+### 3.1 Criar a Branch e Pastas
 
 ```bash
 git checkout -b feature/auth-rbac
 git push -u origin feature/auth-rbac
+
+# Criar pastas para auth, DTOs, guards, decorators e strategies
+mkdir -p src/common/decorators src/common/guards src/modules/auth/dto src/modules/auth/strategies
 ```
 
-### 3.2 Componentes e Códigos
+### 3.2 Criação Automatizada dos Arquivos da feature/auth-rbac
 
-- `src/common/decorators/roles.decorator.ts`: Decorator `@Roles('ADMIN', 'DOCTOR', ...)`
-- `src/common/decorators/current-user.decorator.ts`: Injeta dados do usuário logado
-- `src/common/guards/jwt-auth.guard.ts`: Valida o token JWT em headers `Authorization: Bearer <token>`
-- `src/common/guards/roles.guard.ts`: Valida se o usuário logado possui o papel requerido
-- `src/modules/auth/auth.service.ts`: Métodos `login()`, `register()`, `refreshToken()`, `validateUser()`
-- `src/modules/auth/auth.controller.ts`: Endpoints `POST /api/auth/login`, `POST /api/auth/register`, `POST /api/auth/refresh`
-- `src/modules/auth/auth.module.ts`: Integração com `JwtModule` e `PassportModule`
+```bash
+cat << 'EOF' > src/common/decorators/roles.decorator.ts
+import { SetMetadata } from '@nestjs/common';
+import { Role } from '../../../generated/prisma/client';
+
+export const ROLES_KEY = 'roles';
+export const Roles = (...roles: Role[]) => SetMetadata(ROLES_KEY, roles);
+EOF
+
+cat << 'EOF' > src/common/decorators/current-user.decorator.ts
+import { createParamDecorator, ExecutionContext } from '@nestjs/common';
+
+export interface CurrentUserPayload {
+  userId: string;
+  email: string;
+  role: string;
+}
+
+export const CurrentUser = createParamDecorator(
+  (data: keyof CurrentUserPayload | undefined, ctx: ExecutionContext) => {
+    const request = ctx.switchToHttp().getRequest();
+    const user = request.user;
+    return data ? user?.[data] : user;
+  }
+);
+EOF
+
+cat << 'EOF' > src/common/guards/jwt-auth.guard.ts
+import { Injectable } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
+
+@Injectable()
+export class JwtAuthGuard extends AuthGuard('jwt') {}
+EOF
+
+cat << 'EOF' > src/common/guards/roles.guard.ts
+import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { Role } from '../../../generated/prisma/client';
+import { ROLES_KEY } from '../decorators/roles.decorator';
+
+@Injectable()
+export class RolesGuard implements CanActivate {
+  constructor(private reflector: Reflector) {}
+
+  canActivate(context: ExecutionContext): boolean {
+    const requiredRoles = this.reflector.getAllAndOverride<Role[]>(ROLES_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+
+    if (!requiredRoles || requiredRoles.length === 0) {
+      return true;
+    }
+
+    const { user } = context.switchToHttp().getRequest();
+    if (!user || !requiredRoles.includes(user.role)) {
+      throw new ForbiddenException('Acesso negado: permissão insuficiente para este recurso');
+    }
+
+    return true;
+  }
+}
+EOF
+
+cat << 'EOF' > src/modules/auth/dto/login.dto.ts
+import { ApiProperty } from '@nestjs/swagger';
+import { IsEmail, IsString, MinLength } from 'class-validator';
+
+export class LoginDto {
+  @ApiProperty({ example: 'dra.fernanda@clinica.com.br' })
+  @IsEmail({}, { message: 'Formato de e-mail inválido' })
+  email!: string;
+
+  @ApiProperty({ example: 'SenhaForte@123', minLength: 6 })
+  @IsString()
+  @MinLength(6, { message: 'A senha deve ter no mínimo 6 caracteres' })
+  password!: string;
+}
+EOF
+
+cat << 'EOF' > src/modules/auth/dto/register.dto.ts
+import { ApiProperty } from '@nestjs/swagger';
+import { IsEmail, IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
+import { Role } from '../../../../generated/prisma/client';
+
+export class RegisterDto {
+  @ApiProperty({ example: 'Dr. Lucas Médico' })
+  @IsString()
+  name!: string;
+
+  @ApiProperty({ example: 'lucas.medico@clinica.com.br' })
+  @IsEmail({}, { message: 'Formato de e-mail inválido' })
+  email!: string;
+
+  @ApiProperty({ example: 'SenhaForte@123', minLength: 6 })
+  @IsString()
+  @MinLength(6, { message: 'A senha deve ter no mínimo 6 caracteres' })
+  password!: string;
+
+  @ApiProperty({ enum: Role, default: Role.PATIENT })
+  @IsOptional()
+  @IsEnum(Role)
+  role?: Role;
+}
+EOF
+
+cat << 'EOF' > src/modules/auth/dto/refresh-token.dto.ts
+import { ApiProperty } from '@nestjs/swagger';
+import { IsString } from 'class-validator';
+
+export class RefreshTokenDto {
+  @ApiProperty({ description: 'Refresh Token recebido no login' })
+  @IsString()
+  refreshToken!: string;
+}
+EOF
+
+cat << 'EOF' > src/modules/auth/strategies/jwt.strategy.ts
+import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { PassportStrategy } from '@nestjs/passport';
+import { ExtractJwt, Strategy } from 'passport-jwt';
+import { ConfigService } from '@nestjs/config';
+
+@Injectable()
+export class JwtStrategy extends PassportStrategy(Strategy) {
+  constructor(configService: ConfigService) {
+    super({
+      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      ignoreExpiration: false,
+      secretOrKey: configService.get<string>('JWT_SECRET') || 'dev-secret-change-in-prod',
+    });
+  }
+
+  async validate(payload: { sub: string; email: string; role: string }) {
+    if (!payload.sub) {
+      throw new UnauthorizedException('Token inválido');
+    }
+    return { userId: payload.sub, email: payload.email, role: payload.role };
+  }
+}
+EOF
+
+cat << 'EOF' > src/modules/auth/auth.service.ts
+import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
+import bcrypt from 'bcrypt';
+import { PrismaService } from '../../database/prisma.service';
+import { LoginDto } from './dto/login.dto';
+import { RegisterDto } from './dto/register.dto';
+
+@Injectable()
+export class AuthService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
+  ) {}
+
+  async register(dto: RegisterDto) {
+    const existing = await this.prisma.user.findUnique({
+      where: { email: dto.email },
+    });
+
+    if (existing) {
+      throw new ConflictException('E-mail já cadastrado no sistema');
+    }
+
+    const passwordHash = await bcrypt.hash(dto.password, 10);
+    const user = await this.prisma.user.create({
+      data: {
+        name: dto.name,
+        email: dto.email,
+        passwordHash,
+        role: dto.role || 'PATIENT',
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        createdAt: true,
+      },
+    });
+
+    return user;
+  }
+
+  async login(dto: LoginDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { email: dto.email },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('Credenciais inválidas');
+    }
+
+    const passwordMatch = await bcrypt.compare(dto.password, user.passwordHash);
+    if (!passwordMatch) {
+      throw new UnauthorizedException('Credenciais inválidas');
+    }
+
+    const tokens = await this.generateTokens(user.id, user.email, user.role);
+    await this.updateRefreshToken(user.id, tokens.refreshToken);
+
+    return {
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+      },
+      ...tokens,
+    };
+  }
+
+  async refreshToken(userId: string, refreshToken: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user || !user.refreshToken) {
+      throw new UnauthorizedException('Acesso negado');
+    }
+
+    const match = await bcrypt.compare(refreshToken, user.refreshToken);
+    if (!match) {
+      throw new UnauthorizedException('Refresh Token inválido ou expirado');
+    }
+
+    const tokens = await this.generateTokens(user.id, user.email, user.role);
+    await this.updateRefreshToken(user.id, tokens.refreshToken);
+
+    return tokens;
+  }
+
+  private async generateTokens(userId: string, email: string, role: string) {
+    const payload = { sub: userId, email, role };
+    const secret = this.configService.get<string>('JWT_SECRET') || 'dev-secret-change-in-prod';
+    const refreshSecret =
+      this.configService.get<string>('JWT_REFRESH_SECRET') || 'dev-refresh-secret-change-in-prod';
+
+    const [accessToken, refreshToken] = await Promise.all([
+      this.jwtService.signAsync(payload, {
+        secret,
+        expiresIn: '15m',
+      }),
+      this.jwtService.signAsync(payload, {
+        secret: refreshSecret,
+        expiresIn: '7d',
+      }),
+    ]);
+
+    return { accessToken, refreshToken };
+  }
+
+  private async updateRefreshToken(userId: string, refreshToken: string) {
+    const hash = await bcrypt.hash(refreshToken, 10);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { refreshToken: hash },
+    });
+  }
+}
+EOF
+
+cat << 'EOF' > src/modules/auth/auth.controller.ts
+import { Controller, Post, Body, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { AuthService } from './auth.service';
+import { LoginDto } from './dto/login.dto';
+import { RegisterDto } from './dto/register.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { CurrentUser, CurrentUserPayload } from '../../common/decorators/current-user.decorator';
+
+@ApiTags('Auth')
+@Controller('auth')
+export class AuthController {
+  constructor(private readonly authService: AuthService) {}
+
+  @Post('register')
+  @ApiOperation({ summary: 'Registrar novo usuário' })
+  @ApiResponse({ status: 201, description: 'Usuário registrado com sucesso' })
+  register(@Body() dto: RegisterDto) {
+    return this.authService.register(dto);
+  }
+
+  @Post('login')
+  @ApiOperation({ summary: 'Autenticar usuário e emitir tokens JWT' })
+  @ApiResponse({ status: 200, description: 'Login realizado com sucesso' })
+  login(@Body() dto: LoginDto) {
+    return this.authService.login(dto);
+  }
+
+  @Post('refresh')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: 'Renovar Access Token através do Refresh Token' })
+  @ApiResponse({ status: 200, description: 'Tokens renovados com sucesso' })
+  refresh(@CurrentUser() user: CurrentUserPayload, @Body() dto: RefreshTokenDto) {
+    return this.authService.refreshToken(user.userId, dto.refreshToken);
+  }
+}
+EOF
+
+cat << 'EOF' > src/modules/auth/auth.module.ts
+import { Module } from '@nestjs/common';
+import { JwtModule } from '@nestjs/jwt';
+import { PassportModule } from '@nestjs/passport';
+import { AuthService } from './auth.service';
+import { AuthController } from './auth.controller';
+import { JwtStrategy } from './strategies/jwt.strategy';
+
+@Module({
+  imports: [PassportModule, JwtModule.register({})],
+  controllers: [AuthController],
+  providers: [AuthService, JwtStrategy],
+  exports: [AuthService],
+})
+export class AuthModule {}
+EOF
+
+cat << 'EOF' > src/app.module.ts
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { LoggerModule } from 'nestjs-pino';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { PrismaModule } from './database/prisma.module';
+import { AuthModule } from './modules/auth/auth.module';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+    }),
+    LoggerModule.forRoot({
+      pinoHttp: {
+        level: process.env.LOG_LEVEL || 'info',
+        transport:
+          process.env.NODE_ENV !== 'production'
+            ? {
+                target: 'pino-pretty',
+                options: {
+                  singleLine: true,
+                  colorize: true,
+                },
+              }
+            : undefined,
+      },
+    }),
+    PrismaModule,
+    AuthModule,
+  ],
+  controllers: [AppController],
+  providers: [AppService],
+})
+export class AppModule {}
+EOF
+```
 
 ### 3.3 Comandos de Teste e Transição
 
 ```bash
-npm test
+npm run lint
+npx tsc --noEmit
+npm run test:ci
 npm run build
 
 git add .
@@ -805,15 +1372,19 @@ git push origin --delete feature/auth-rbac
 
 ## 4. PASSO 4 — feature/appointments (Agendamento e Cache)
 
-### 4.1 Criar a Branch
+### 4.1 Criar a Branch e Pastas
 
 ```bash
 git checkout -b feature/appointments
 git push -u origin feature/appointments
+
+# Criar pasta de DTOs do agendamento
+mkdir -p src/modules/appointments/dto
 ```
 
-### 4.2 Componentes e Códigos
+### 4.2 Componentes e Códigos da feature/appointments
 
+- `src/modules/appointments/dto/create-appointment.dto.ts`
 - `src/modules/appointments/appointments.service.ts`:
   - `create()`: Valida se médico e paciente existem, checa conflito de horário no mesmo `dateTime` e invalida cache Redis do médico.
   - `getAvailableSlots(doctorId, date)`: Consulta horários livres (08:00 às 18:00) com padrão Cache-Aside no Redis (TTL: 1 hora).
@@ -822,11 +1393,14 @@ git push -u origin feature/appointments
   - `POST /api/appointments` (Protegido por `@Roles(Role.RECEPTIONIST, Role.PATIENT, Role.ADMIN)`)
   - `GET /api/appointments/available-slots`
   - `DELETE /api/appointments/:id`
+- `src/modules/appointments/appointments.module.ts`
 
 ### 4.3 Comandos de Teste e Transição
 
 ```bash
-npm test
+npm run lint
+npx tsc --noEmit
+npm run test:ci
 npm run build
 
 git add .
@@ -847,27 +1421,35 @@ git push origin --delete feature/appointments
 
 ## 5. PASSO 5 — feature/medical-records (Prontuário e Auditoria LGPD)
 
-### 5.1 Criar a Branch
+### 5.1 Criar a Branch e Pastas
 
 ```bash
 git checkout -b feature/medical-records
 git push -u origin feature/medical-records
+
+# Criar pastas para auditoria e prontuários
+mkdir -p src/modules/audit src/modules/medical-records/dto
 ```
 
 ### 5.2 Componentes e Códigos
 
 - `src/modules/audit/audit.service.ts`: Grava registros em `AuditLog` (`userId`, `action`, `resource`, `ipAddress`, `timestamp`).
+- `src/modules/audit/audit.module.ts`
+- `src/modules/medical-records/dto/create-medical-record.dto.ts`
 - `src/modules/medical-records/medical-records.service.ts`:
   - Validação RLS: Paciente acessa **apenas** seus próprios prontuários; Médico acessa **apenas** prontuários de seus pacientes vinculados.
   - Toda operação de leitura/escrita aciona o `AuditService`.
 - `src/modules/medical-records/medical-records.controller.ts`:
   - `POST /api/medical-records` (Apenas `Role.DOCTOR`)
   - `GET /api/medical-records/patient/:patientId` (Protegido por RBAC e RLS)
+- `src/modules/medical-records/medical-records.module.ts`
 
 ### 5.3 Comandos de Teste e Transição
 
 ```bash
-npm test
+npm run lint
+npx tsc --noEmit
+npm run test:ci
 npm run build
 
 git add .
@@ -888,11 +1470,14 @@ git push origin --delete feature/medical-records
 
 ## 6. PASSO 6 — feature/notifications-queue (Filas e Lembretes)
 
-### 6.1 Criar a Branch
+### 6.1 Criar a Branch e Pastas
 
 ```bash
 git checkout -b feature/notifications-queue
 git push -u origin feature/notifications-queue
+
+# Criar pastas para processadores de filas
+mkdir -p src/modules/notifications/processors
 ```
 
 ### 6.2 Componentes e Códigos
@@ -901,11 +1486,15 @@ git push -u origin feature/notifications-queue
   - Worker BullMQ processando fila `'notifications'` com 3 tentativas e backoff exponencial.
   - Jobs: `'send-sms-reminder'` (Simulação Twilio) e `'send-email-confirmation'` (Simulação SendGrid).
 - `src/modules/notifications/notifications.service.ts`: Enfileira jobs sem bloquear a requisição HTTP.
+- `src/modules/notifications/notifications.controller.ts`
+- `src/modules/notifications/notifications.module.ts`
 
 ### 6.3 Comandos de Teste e Transição
 
 ```bash
-npm test
+npm run lint
+npx tsc --noEmit
+npm run test:ci
 npm run build
 
 git add .
