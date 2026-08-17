@@ -48,7 +48,7 @@ Template e guia definitivo de arquitetura backend para o projeto **A Clínica da
 
 ### 1.2 Arquivos Entregues
 
-- Configurações de Tooling: `package.json`, `tsconfig.json`, `tsconfig.build.json`, `nest-cli.json`, `eslint.config.mjs`, `jest.config.cjs`, `commitlint.config.mjs`, `.prettierrc.json`, `.lintstagedrc.json`, `.husky/commit-msg`, `.husky/pre-commit`, `.husky/pre-push`.
+- Configurações de Tooling e CI: `package.json`, `tsconfig.json`, `tsconfig.build.json`, `nest-cli.json`, `.github/workflows/ci.yml`, `eslint.config.mjs`, `jest.config.cjs`, `commitlint.config.mjs`, `.prettierrc.json`, `.lintstagedrc.json`, `.husky/commit-msg`, `.husky/pre-commit`, `.husky/pre-push`.
 - Containers: `Dockerfile` (multi-stage com non-root user `node`), `docker-compose.yml` (PostgreSQL 16 + Redis 7 + App).
 - Prisma: `prisma.config.ts`, `prisma/schema.prisma`.
 - Bootstrap NestJS: `src/main.ts`, `src/app.module.ts`, `src/app.controller.ts`, `src/app.service.ts`, `src/app.controller.spec.ts`.
