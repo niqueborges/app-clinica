@@ -25,8 +25,8 @@ Template e guia definitivo de arquitetura backend para o projeto **A Clínica da
 | develop                     | Branch de integração contínua.                                                                          | Planejado     |
 | feature/init                | Scaffold NestJS, TypeScript, Linter, Husky, Commitlint, CI e Health Check.                              | Concluído     |
 | feature/prisma              | Schema Prisma v7, Driver Adapter PG, Entidades, Migrations e Seed (Médicos, Recepcionistas, Pacientes). | Concluído     |
-| feature/auth-rbac           | Módulo de Autenticação: JWT + Refresh Token, Roles enum, Decorators @Roles(), Guards.                   | PROXIMO PASSO |
-| feature/appointments        | Módulo de Agendamento: Conflito de horários, cancelamento com Soft Delete e Cache Redis.                | Pendente      |
+| feature/auth-rbac           | Módulo de Autenticação: JWT + Refresh Token, Roles enum, Decorators @Roles(), Guards.                   | Concluído     |
+| feature/appointments        | Módulo de Agendamento: Conflito de horários, cancelamento com Soft Delete e Cache Redis.                | PROXIMO PASSO |
 | feature/medical-records     | Módulo de Prontuário Eletrônico com isolamento de dados e trilha de Auditoria LGPD.                     | Pendente      |
 | feature/notifications-queue | Módulo de Filas: BullMQ + Redis, processadores assíncronos de SMS (Twilio) e Email.                     | Pendente      |
 | feature/frontend            | Aplicação web (React + Vite + TypeScript) com painel médico, recepção e agendamento.                    | Pendente      |

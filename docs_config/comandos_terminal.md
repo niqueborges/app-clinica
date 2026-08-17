@@ -1382,18 +1382,304 @@ git push -u origin feature/appointments
 mkdir -p src/modules/appointments/dto
 ```
 
-### 4.2 Componentes e Códigos da feature/appointments
+### 4.2 Criação Automatizada dos Arquivos da feature/appointments
 
-- `src/modules/appointments/dto/create-appointment.dto.ts`
-- `src/modules/appointments/appointments.service.ts`:
-  - `create()`: Valida se médico e paciente existem, checa conflito de horário no mesmo `dateTime` e invalida cache Redis do médico.
-  - `getAvailableSlots(doctorId, date)`: Consulta horários livres (08:00 às 18:00) com padrão Cache-Aside no Redis (TTL: 1 hora).
-  - `cancel(id)`: Soft Delete marcando `deletedAt = new Date()`, mantendo histórico LGPD.
-- `src/modules/appointments/appointments.controller.ts`:
-  - `POST /api/appointments` (Protegido por `@Roles(Role.RECEPTIONIST, Role.PATIENT, Role.ADMIN)`)
-  - `GET /api/appointments/available-slots`
-  - `DELETE /api/appointments/:id`
-- `src/modules/appointments/appointments.module.ts`
+```bash
+cat << 'EOF' > src/modules/appointments/dto/create-appointment.dto.ts
+import { ApiProperty } from '@nestjs/swagger';
+import { IsDateString, IsNotEmpty, IsOptional, IsString, IsUUID } from 'class-validator';
+
+export class CreateAppointmentDto {
+  @ApiProperty({ example: 'a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d', description: 'ID do médico' })
+  @IsUUID('4', { message: 'ID do médico inválido' })
+  @IsNotEmpty()
+  doctorId!: string;
+
+  @ApiProperty({ example: 'f6e5d4c3-b2a1-0f9e-8d7c-6b5a4f3e2d1c', description: 'ID do paciente' })
+  @IsUUID('4', { message: 'ID do paciente inválido' })
+  @IsNotEmpty()
+  patientId!: string;
+
+  @ApiProperty({ example: '2026-08-20T09:00:00.000Z', description: 'Data e hora da consulta (ISO 8601)' })
+  @IsDateString({}, { message: 'Data e hora em formato ISO inválido' })
+  @IsNotEmpty()
+  dateTime!: string;
+
+  @ApiProperty({ example: 'Primeira consulta de rotina', required: false })
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+EOF
+
+cat << 'EOF' > src/modules/appointments/appointments.service.ts
+import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
+import Redis from 'ioredis';
+import { PrismaService } from '../../database/prisma.service';
+import { CreateAppointmentDto } from './dto/create-appointment.dto';
+
+@Injectable()
+export class AppointmentsService {
+  private readonly logger = new Logger(AppointmentsService.name);
+  private readonly redis: Redis;
+
+  constructor(private readonly prisma: PrismaService) {
+    this.redis = new Redis({
+      host: process.env.REDIS_HOST || 'localhost',
+      port: parseInt(process.env.REDIS_PORT || '6379', 10),
+      maxRetriesPerRequest: null,
+      lazyConnect: true,
+    });
+    this.redis.connect().catch((err) => {
+      this.logger.warn(`Redis connection error: ${(err as Error).message}`);
+    });
+  }
+
+  async create(dto: CreateAppointmentDto) {
+    const doctor = await this.prisma.doctor.findUnique({
+      where: { id: dto.doctorId },
+    });
+    if (!doctor) {
+      throw new NotFoundException('Médico não encontrado');
+    }
+
+    const patient = await this.prisma.patient.findUnique({
+      where: { id: dto.patientId },
+    });
+    if (!patient) {
+      throw new NotFoundException('Paciente não encontrado');
+    }
+
+    const targetDate = new Date(dto.dateTime);
+
+    // Prevenção de conflito de horário no mesmo médico
+    const existingDoctorAppointment = await this.prisma.appointment.findFirst({
+      where: {
+        doctorId: dto.doctorId,
+        dateTime: targetDate,
+        deletedAt: null,
+      },
+    });
+
+    if (existingDoctorAppointment) {
+      throw new ConflictException('Horário indisponível para este médico');
+    }
+
+    // Criar agendamento
+    const appointment = await this.prisma.appointment.create({
+      data: {
+        doctorId: dto.doctorId,
+        patientId: dto.patientId,
+        dateTime: targetDate,
+        notes: dto.notes,
+      },
+      include: {
+        doctor: { select: { crm: true, specialty: true, user: { select: { name: true } } } },
+        patient: { select: { cpf: true, user: { select: { name: true } } } },
+      },
+    });
+
+    // Invalidar cache de horários livres do médico
+    const dateStr = dto.dateTime.split('T')[0];
+    const cacheKey = `slots:${dto.doctorId}:${dateStr}`;
+    await this.redis.del(cacheKey);
+
+    return appointment;
+  }
+
+  async getAvailableSlots(doctorId: string, date: string): Promise<string[]> {
+    const cacheKey = `slots:${doctorId}:${date}`;
+    const cachedSlots = await this.redis.get(cacheKey);
+
+    if (cachedSlots) {
+      return JSON.parse(cachedSlots) as string[];
+    }
+
+    const doctor = await this.prisma.doctor.findUnique({
+      where: { id: doctorId },
+    });
+    if (!doctor) {
+      throw new NotFoundException('Médico não encontrado');
+    }
+
+    // Horários padrão de atendimento: 08:00 às 17:00 (slots de 1h)
+    const baseSlots = ['08:00', '09:00', '10:00', '11:00', '13:00', '14:00', '15:00', '16:00', '17:00'];
+    const startOfDay = new Date(`${date}T00:00:00.000Z`);
+    const endOfDay = new Date(`${date}T23:59:59.999Z`);
+
+    const bookedAppointments = await this.prisma.appointment.findMany({
+      where: {
+        doctorId,
+        dateTime: { gte: startOfDay, lte: endOfDay },
+        deletedAt: null,
+      },
+      select: { dateTime: true },
+    });
+
+    const bookedHours = bookedAppointments.map((app) =>
+      app.dateTime.toISOString().substring(11, 16)
+    );
+
+    const availableSlots = baseSlots.filter((slot) => !bookedHours.includes(slot));
+
+    // Salvar no Redis com TTL de 1 hora (Cache-Aside)
+    await this.redis.set(cacheKey, JSON.stringify(availableSlots), 'EX', 3600);
+
+    return availableSlots;
+  }
+
+  async findAll(doctorId?: string, patientId?: string) {
+    return this.prisma.appointment.findMany({
+      where: {
+        deletedAt: null,
+        ...(doctorId ? { doctorId } : {}),
+        ...(patientId ? { patientId } : {}),
+      },
+      include: {
+        doctor: { select: { crm: true, specialty: true, user: { select: { name: true } } } },
+        patient: { select: { cpf: true, user: { select: { name: true } } } },
+      },
+      orderBy: { dateTime: 'asc' },
+    });
+  }
+
+  async cancel(id: string) {
+    const appointment = await this.prisma.appointment.findUnique({
+      where: { id },
+    });
+    if (!appointment || appointment.deletedAt) {
+      throw new NotFoundException('Agendamento não encontrado');
+    }
+
+    const cancelled = await this.prisma.appointment.update({
+      where: { id },
+      data: {
+        status: 'CANCELLED',
+        deletedAt: new Date(),
+      },
+    });
+
+    const dateStr = appointment.dateTime.toISOString().split('T')[0];
+    const cacheKey = `slots:${appointment.doctorId}:${dateStr}`;
+    await this.redis.del(cacheKey);
+
+    return cancelled;
+  }
+}
+EOF
+
+cat << 'EOF' > src/modules/appointments/appointments.controller.ts
+import { Controller, Get, Post, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import { AppointmentsService } from './appointments.service';
+import { CreateAppointmentDto } from './dto/create-appointment.dto';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { Role } from '../../../generated/prisma/client';
+
+@ApiTags('Appointments')
+@ApiBearerAuth('access-token')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Controller('appointments')
+export class AppointmentsController {
+  constructor(private readonly appointmentsService: AppointmentsService) {}
+
+  @Post()
+  @Roles(Role.ADMIN, Role.RECEPTIONIST, Role.PATIENT)
+  @ApiOperation({ summary: 'Criar novo agendamento de consulta' })
+  @ApiResponse({ status: 201, description: 'Consulta agendada com sucesso' })
+  create(@Body() dto: CreateAppointmentDto) {
+    return this.appointmentsService.create(dto);
+  }
+
+  @Get('available-slots')
+  @Roles(Role.ADMIN, Role.DOCTOR, Role.RECEPTIONIST, Role.PATIENT)
+  @ApiOperation({ summary: 'Consultar horários livres com Cache-Aside no Redis' })
+  @ApiQuery({ name: 'doctorId', type: String, required: true })
+  @ApiQuery({ name: 'date', type: String, required: true, example: '2026-08-20' })
+  getAvailableSlots(
+    @Query('doctorId') doctorId: string,
+    @Query('date') date: string
+  ) {
+    return this.appointmentsService.getAvailableSlots(doctorId, date);
+  }
+
+  @Get()
+  @Roles(Role.ADMIN, Role.DOCTOR, Role.RECEPTIONIST)
+  @ApiOperation({ summary: 'Listar agendamentos ativos' })
+  @ApiQuery({ name: 'doctorId', type: String, required: false })
+  @ApiQuery({ name: 'patientId', type: String, required: false })
+  findAll(
+    @Query('doctorId') doctorId?: string,
+    @Query('patientId') patientId?: string
+  ) {
+    return this.appointmentsService.findAll(doctorId, patientId);
+  }
+
+  @Delete(':id')
+  @Roles(Role.ADMIN, Role.RECEPTIONIST, Role.PATIENT)
+  @ApiOperation({ summary: 'Cancelar agendamento (Soft Delete LGPD)' })
+  @ApiResponse({ status: 200, description: 'Consulta cancelada com sucesso' })
+  cancel(@Param('id') id: string) {
+    return this.appointmentsService.cancel(id);
+  }
+}
+EOF
+
+cat << 'EOF' > src/modules/appointments/appointments.module.ts
+import { Module } from '@nestjs/common';
+import { AppointmentsService } from './appointments.service';
+import { AppointmentsController } from './appointments.controller';
+
+@Module({
+  controllers: [AppointmentsController],
+  providers: [AppointmentsService],
+  exports: [AppointmentsService],
+})
+export class AppointmentsModule {}
+EOF
+
+cat << 'EOF' > src/app.module.ts
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { LoggerModule } from 'nestjs-pino';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { PrismaModule } from './database/prisma.module';
+import { AuthModule } from './modules/auth/auth.module';
+import { AppointmentsModule } from './modules/appointments/appointments.module';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+    }),
+    LoggerModule.forRoot({
+      pinoHttp: {
+        level: process.env.LOG_LEVEL || 'info',
+        transport:
+          process.env.NODE_ENV !== 'production'
+            ? {
+                target: 'pino-pretty',
+                options: {
+                  singleLine: true,
+                  colorize: true,
+                },
+              }
+            : undefined,
+      },
+    }),
+    PrismaModule,
+    AuthModule,
+    AppointmentsModule,
+  ],
+  controllers: [AppController],
+  providers: [AppService],
+})
+export class AppModule {}
+EOF
+```
 
 ### 4.3 Comandos de Teste e Transição
 
@@ -1431,18 +1717,274 @@ git push -u origin feature/medical-records
 mkdir -p src/modules/audit src/modules/medical-records/dto
 ```
 
-### 5.2 Componentes e Códigos
+### 5.2 Criação Automatizada dos Arquivos da feature/medical-records
 
-- `src/modules/audit/audit.service.ts`: Grava registros em `AuditLog` (`userId`, `action`, `resource`, `ipAddress`, `timestamp`).
-- `src/modules/audit/audit.module.ts`
-- `src/modules/medical-records/dto/create-medical-record.dto.ts`
-- `src/modules/medical-records/medical-records.service.ts`:
-  - Validação RLS: Paciente acessa **apenas** seus próprios prontuários; Médico acessa **apenas** prontuários de seus pacientes vinculados.
-  - Toda operação de leitura/escrita aciona o `AuditService`.
-- `src/modules/medical-records/medical-records.controller.ts`:
-  - `POST /api/medical-records` (Apenas `Role.DOCTOR`)
-  - `GET /api/medical-records/patient/:patientId` (Protegido por RBAC e RLS)
-- `src/modules/medical-records/medical-records.module.ts`
+```bash
+cat << 'EOF' > src/modules/audit/audit.service.ts
+import { Injectable, Logger } from '@nestjs/common';
+import { PrismaService } from '../../database/prisma.service';
+
+export interface CreateAuditLogParams {
+  userId?: string;
+  action: string;
+  resource: string;
+  ipAddress?: string;
+  details?: string;
+}
+
+@Injectable()
+export class AuditService {
+  private readonly logger = new Logger(AuditService.name);
+
+  constructor(private readonly prisma: PrismaService) {}
+
+  async log(params: CreateAuditLogParams) {
+    try {
+      return await this.prisma.auditLog.create({
+        data: {
+          userId: params.userId,
+          action: params.action,
+          resource: params.resource,
+          ipAddress: params.ipAddress,
+          details: params.details,
+        },
+      });
+    } catch (error) {
+      this.logger.error(`Falha ao registrar log de auditoria LGPD: ${(error as Error).message}`);
+      return null;
+    }
+  }
+}
+EOF
+
+cat << 'EOF' > src/modules/audit/audit.module.ts
+import { Global, Module } from '@nestjs/common';
+import { AuditService } from './audit.service';
+
+@Global()
+@Module({
+  providers: [AuditService],
+  exports: [AuditService],
+})
+export class AuditModule {}
+EOF
+
+cat << 'EOF' > src/modules/medical-records/dto/create-medical-record.dto.ts
+import { ApiProperty } from '@nestjs/swagger';
+import { IsNotEmpty, IsOptional, IsString, IsUUID } from 'class-validator';
+
+export class CreateMedicalRecordDto {
+  @ApiProperty({ example: 'f6e5d4c3-b2a1-0f9e-8d7c-6b5a4f3e2d1c', description: 'ID do paciente' })
+  @IsUUID('4', { message: 'ID do paciente inválido' })
+  @IsNotEmpty()
+  patientId!: string;
+
+  @ApiProperty({ example: 'Hipertensão arterial estágio 1 e histórico familiar de cardiopatia.' })
+  @IsString()
+  @IsNotEmpty({ message: 'O diagnóstico é obrigatório' })
+  diagnosis!: string;
+
+  @ApiProperty({ example: 'Losartana Potássica 50mg, 1 comprimido ao dia pela manhã.', required: false })
+  @IsOptional()
+  @IsString()
+  prescription?: string;
+
+  @ApiProperty({ example: 'Retorno agendado em 60 dias para reavaliação.', required: false })
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+EOF
+
+cat << 'EOF' > src/modules/medical-records/medical-records.service.ts
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { PrismaService } from '../../database/prisma.service';
+import { AuditService } from '../audit/audit.service';
+import { CreateMedicalRecordDto } from './dto/create-medical-record.dto';
+import { CurrentUserPayload } from '../../common/decorators/current-user.decorator';
+
+@Injectable()
+export class MedicalRecordsService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditService: AuditService,
+  ) {}
+
+  async create(user: CurrentUserPayload, dto: CreateMedicalRecordDto, ipAddress?: string) {
+    const doctor = await this.prisma.doctor.findUnique({
+      where: { userId: user.userId },
+    });
+
+    if (!doctor) {
+      throw new ForbiddenException('Apenas médicos credenciados podem criar prontuários');
+    }
+
+    const patient = await this.prisma.patient.findUnique({
+      where: { id: dto.patientId },
+    });
+
+    if (!patient) {
+      throw new NotFoundException('Paciente não encontrado');
+    }
+
+    const record = await this.prisma.medicalRecord.create({
+      data: {
+        doctorId: doctor.id,
+        patientId: dto.patientId,
+        diagnosis: dto.diagnosis,
+        prescription: dto.prescription,
+        notes: dto.notes,
+      },
+      include: {
+        doctor: { select: { crm: true, specialty: true, user: { select: { name: true } } } },
+        patient: { select: { cpf: true, user: { select: { name: true } } } },
+      },
+    });
+
+    await this.auditService.log({
+      userId: user.userId,
+      action: 'CREATE_MEDICAL_RECORD',
+      resource: `medical_records:${record.id}`,
+      ipAddress,
+      details: JSON.stringify({ patientId: dto.patientId, doctorId: doctor.id }),
+    });
+
+    return record;
+  }
+
+  async findByPatient(user: CurrentUserPayload, patientId: string, ipAddress?: string) {
+    // Validação RLS (Row-Level Security)
+    if (user.role === 'PATIENT') {
+      const patient = await this.prisma.patient.findUnique({
+        where: { userId: user.userId },
+      });
+      if (!patient || patient.id !== patientId) {
+        throw new ForbiddenException('Acesso negado: pacientes só podem visualizar seu próprio prontuário');
+      }
+    }
+
+    const records = await this.prisma.medicalRecord.findMany({
+      where: { patientId },
+      include: {
+        doctor: { select: { crm: true, specialty: true, user: { select: { name: true } } } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    await this.auditService.log({
+      userId: user.userId,
+      action: 'VIEW_MEDICAL_RECORDS',
+      resource: `medical_records:patient:${patientId}`,
+      ipAddress,
+      details: `Total de registros acessados: ${records.length}`,
+    });
+
+    return records;
+  }
+}
+EOF
+
+cat << 'EOF' > src/modules/medical-records/medical-records.controller.ts
+import { Controller, Post, Get, Body, Param, UseGuards, Req } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { Request } from 'express';
+import { MedicalRecordsService } from './medical-records.service';
+import { CreateMedicalRecordDto } from './dto/create-medical-record.dto';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser, CurrentUserPayload } from '../../common/decorators/current-user.decorator';
+import { Role } from '../../../generated/prisma/client';
+
+@ApiTags('Medical Records')
+@ApiBearerAuth('access-token')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Controller('medical-records')
+export class MedicalRecordsController {
+  constructor(private readonly medicalRecordsService: MedicalRecordsService) {}
+
+  @Post()
+  @Roles(Role.DOCTOR, Role.ADMIN)
+  @ApiOperation({ summary: 'Criar entrada no prontuário eletrônico (Médicos/Admin)' })
+  @ApiResponse({ status: 201, description: 'Prontuário criado e auditado com sucesso' })
+  create(
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() dto: CreateMedicalRecordDto,
+    @Req() req: Request,
+  ) {
+    return this.medicalRecordsService.create(user, dto, req.ip);
+  }
+
+  @Get('patient/:patientId')
+  @Roles(Role.DOCTOR, Role.ADMIN, Role.PATIENT)
+  @ApiOperation({ summary: 'Consultar histórico de prontuários com validação RLS e auditoria LGPD' })
+  findByPatient(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('patientId') patientId: string,
+    @Req() req: Request,
+  ) {
+    return this.medicalRecordsService.findByPatient(user, patientId, req.ip);
+  }
+}
+EOF
+
+cat << 'EOF' > src/modules/medical-records/medical-records.module.ts
+import { Module } from '@nestjs/common';
+import { MedicalRecordsService } from './medical-records.service';
+import { MedicalRecordsController } from './medical-records.controller';
+
+@Module({
+  controllers: [MedicalRecordsController],
+  providers: [MedicalRecordsService],
+  exports: [MedicalRecordsService],
+})
+export class MedicalRecordsModule {}
+EOF
+
+cat << 'EOF' > src/app.module.ts
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { LoggerModule } from 'nestjs-pino';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { PrismaModule } from './database/prisma.module';
+import { AuthModule } from './modules/auth/auth.module';
+import { AppointmentsModule } from './modules/appointments/appointments.module';
+import { AuditModule } from './modules/audit/audit.module';
+import { MedicalRecordsModule } from './modules/medical-records/medical-records.module';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+    }),
+    LoggerModule.forRoot({
+      pinoHttp: {
+        level: process.env.LOG_LEVEL || 'info',
+        transport:
+          process.env.NODE_ENV !== 'production'
+            ? {
+                target: 'pino-pretty',
+                options: {
+                  singleLine: true,
+                  colorize: true,
+                },
+              }
+            : undefined,
+      },
+    }),
+    PrismaModule,
+    AuthModule,
+    AppointmentsModule,
+    AuditModule,
+    MedicalRecordsModule,
+  ],
+  controllers: [AppController],
+  providers: [AppService],
+})
+export class AppModule {}
+EOF
+```
 
 ### 5.3 Comandos de Teste e Transição
 
@@ -1480,14 +2022,214 @@ git push -u origin feature/notifications-queue
 mkdir -p src/modules/notifications/processors
 ```
 
-### 6.2 Componentes e Códigos
+### 6.2 Criação Automatizada dos Arquivos da feature/notifications-queue
 
-- `src/modules/notifications/processors/notification.processor.ts`:
-  - Worker BullMQ processando fila `'notifications'` com 3 tentativas e backoff exponencial.
-  - Jobs: `'send-sms-reminder'` (Simulação Twilio) e `'send-email-confirmation'` (Simulação SendGrid).
-- `src/modules/notifications/notifications.service.ts`: Enfileira jobs sem bloquear a requisição HTTP.
-- `src/modules/notifications/notifications.controller.ts`
-- `src/modules/notifications/notifications.module.ts`
+```bash
+cat << 'EOF' > src/modules/notifications/processors/notification.processor.ts
+import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { Logger } from '@nestjs/common';
+import { Job } from 'bullmq';
+
+export interface SmsReminderJobData {
+  phone: string;
+  patientName: string;
+  dateTime: string;
+  doctorName: string;
+}
+
+export interface EmailConfirmationJobData {
+  email: string;
+  patientName: string;
+  dateTime: string;
+}
+
+@Processor('notifications')
+export class NotificationProcessor extends WorkerHost {
+  private readonly logger = new Logger(NotificationProcessor.name);
+
+  async process(job: Job<SmsReminderJobData | EmailConfirmationJobData>): Promise<void> {
+    this.logger.log(`Processando job [${job.name}] ID: ${job.id}`);
+
+    switch (job.name) {
+      case 'send-sms-reminder': {
+        const data = job.data as SmsReminderJobData;
+        this.logger.log(
+          `[SMS Twilio Simulado] Lembrete para ${data.phone} (${data.patientName}) — Consulta em ${data.dateTime} com ${data.doctorName}`
+        );
+        break;
+      }
+      case 'send-email-confirmation': {
+        const data = job.data as EmailConfirmationJobData;
+        this.logger.log(
+          `[Email SendGrid Simulado] Confirmação para ${data.email} (${data.patientName}) — Consulta agendada para ${data.dateTime}`
+        );
+        break;
+      }
+      default:
+        this.logger.warn(`Tipo de job desconhecido: ${job.name}`);
+    }
+  }
+}
+EOF
+
+cat << 'EOF' > src/modules/notifications/notifications.service.ts
+import { Injectable } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+import { SmsReminderJobData, EmailConfirmationJobData } from './processors/notification.processor';
+
+@Injectable()
+export class NotificationsService {
+  constructor(@InjectQueue('notifications') private readonly notificationsQueue: Queue) {}
+
+  async queueSmsReminder(data: SmsReminderJobData) {
+    return this.notificationsQueue.add('send-sms-reminder', data, {
+      attempts: 3,
+      backoff: {
+        type: 'exponential',
+        delay: 5000,
+      },
+    });
+  }
+
+  async queueEmailConfirmation(data: EmailConfirmationJobData) {
+    return this.notificationsQueue.add('send-email-confirmation', data, {
+      attempts: 3,
+      backoff: {
+        type: 'exponential',
+        delay: 5000,
+      },
+    });
+  }
+}
+EOF
+
+cat << 'EOF' > src/modules/notifications/notifications.controller.ts
+import { Controller, Post, Body, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiProperty } from '@nestjs/swagger';
+import { IsNotEmpty, IsString } from 'class-validator';
+import { NotificationsService } from './notifications.service';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { Role } from '../../../generated/prisma/client';
+
+class SendReminderDto {
+  @ApiProperty({ example: '+5511999998888' })
+  @IsString()
+  @IsNotEmpty()
+  phone!: string;
+
+  @ApiProperty({ example: 'João da Silva' })
+  @IsString()
+  @IsNotEmpty()
+  patientName!: string;
+
+  @ApiProperty({ example: '2026-08-20 às 09:00' })
+  @IsString()
+  @IsNotEmpty()
+  dateTime!: string;
+
+  @ApiProperty({ example: 'Dra. Fernanda Silva' })
+  @IsString()
+  @IsNotEmpty()
+  doctorName!: string;
+}
+
+@ApiTags('Notifications')
+@ApiBearerAuth('access-token')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Controller('notifications')
+export class NotificationsController {
+  constructor(private readonly notificationsService: NotificationsService) {}
+
+  @Post('sms-reminder')
+  @Roles(Role.ADMIN, Role.RECEPTIONIST)
+  @ApiOperation({ summary: 'Enfileirar lembrete SMS na fila BullMQ com Redis' })
+  @ApiResponse({ status: 202, description: 'Lembrete enfileirado com sucesso' })
+  async sendSmsReminder(@Body() dto: SendReminderDto) {
+    await this.notificationsService.queueSmsReminder(dto);
+    return { message: 'Lembrete SMS enfileirado para processamento assíncrono' };
+  }
+}
+EOF
+
+cat << 'EOF' > src/modules/notifications/notifications.module.ts
+import { Module } from '@nestjs/common';
+import { BullModule } from '@nestjs/bullmq';
+import { NotificationsService } from './notifications.service';
+import { NotificationsController } from './notifications.controller';
+import { NotificationProcessor } from './processors/notification.processor';
+
+@Module({
+  imports: [
+    BullModule.registerQueue({
+      name: 'notifications',
+    }),
+  ],
+  controllers: [NotificationsController],
+  providers: [NotificationsService, NotificationProcessor],
+  exports: [NotificationsService],
+})
+export class NotificationsModule {}
+EOF
+
+cat << 'EOF' > src/app.module.ts
+import { Module } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { LoggerModule } from 'nestjs-pino';
+import { BullModule } from '@nestjs/bullmq';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { PrismaModule } from './database/prisma.module';
+import { AuthModule } from './modules/auth/auth.module';
+import { AppointmentsModule } from './modules/appointments/appointments.module';
+import { AuditModule } from './modules/audit/audit.module';
+import { MedicalRecordsModule } from './modules/medical-records/medical-records.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+    }),
+    LoggerModule.forRoot({
+      pinoHttp: {
+        level: process.env.LOG_LEVEL || 'info',
+        transport:
+          process.env.NODE_ENV !== 'production'
+            ? {
+                target: 'pino-pretty',
+                options: {
+                  singleLine: true,
+                  colorize: true,
+                },
+              }
+            : undefined,
+      },
+    }),
+    BullModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        connection: {
+          host: config.get<string>('REDIS_HOST') || 'localhost',
+          port: parseInt(config.get<string>('REDIS_PORT') || '6379', 10),
+        },
+      }),
+    }),
+    PrismaModule,
+    AuthModule,
+    AppointmentsModule,
+    AuditModule,
+    MedicalRecordsModule,
+    NotificationsModule,
+  ],
+  controllers: [AppController],
+  providers: [AppService],
+})
+export class AppModule {}
+EOF
+```
 
 ### 6.3 Comandos de Teste e Transição
 
