@@ -20,7 +20,7 @@ export default [
     rules: {
       ...tsPlugin.configs.recommended.rules,
       'prettier/prettier': 'error',
-      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-unused-vars': [
         'error',
         {
@@ -28,12 +28,7 @@ export default [
           varsIgnorePattern: '^_',
         },
       ],
-      'no-console': [
-        'warn',
-        {
-          allow: ['warn', 'error', 'log'],
-        },
-      ],
+      'no-console': 'error',
     },
   },
   prettierConfig,
