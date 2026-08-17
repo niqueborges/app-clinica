@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "declaration": true,
+    "removeComments": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "target": "ES2022",
+    "sourceMap": true,
+    "outDir": "./dist",
+    "rootDir": "./",
+    "baseUrl": "./",
+    "incremental": true,
+    "ignoreDeprecations": "6.0",
+    "skipLibCheck": true,
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "strictBindCallApply": true,
+    "forceConsistentCasingInFileNames": true,
+    "noFallthroughCasesInSwitch": true,
+    "types": ["node", "jest"],
+    "paths": {
+      "@/*": ["src/*"]
+    }
+  },
+  "include": ["src/**/*", "prisma.config.ts"],
+  "exclude": ["node_modules", "dist", "generated"]
+}
