@@ -11,3 +11,116 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+enum Role {
+  ADMIN
+  DOCTOR
+  RECEPTIONIST
+  PATIENT
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+model User {
+  id           String        @id @default(uuid())
+  email        String        @unique
+  passwordHash String        @map("password_hash")
+  name         String
+  role         Role          @default(PATIENT)
+  refreshToken String?       @map("refresh_token")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  doctor       Doctor?
+  patient      Patient?
+  auditLogs    AuditLog[]
+
+  @@map("users")
+}
+
+model Doctor {
+  id           String        @id @default(uuid())
+  userId       String        @unique @map("user_id")
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  crm          String        @unique
+  specialty    String
+  workingHours String        @default("08:00-18:00") @map("working_hours")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  appointments Appointment[]
+  records      MedicalRecord[]
+
+  @@map("doctors")
+}
+
+model Patient {
+  id           String        @id @default(uuid())
+  userId       String        @unique @map("user_id")
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cpf          String        @unique
+  phone        String
+  birthDate    DateTime      @map("birth_date")
+  address      String?
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  appointments Appointment[]
+  records      MedicalRecord[]
+
+  @@map("patients")
+}
+
+model Appointment {
+  id          String            @id @default(uuid())
+  doctorId    String            @map("doctor_id")
+  doctor      Doctor            @relation(fields: [doctorId], references: [id])
+  patientId   String            @map("patient_id")
+  patient     Patient           @relation(fields: [patientId], references: [id])
+  dateTime    DateTime          @map("date_time")
+  status      AppointmentStatus @default(SCHEDULED)
+  notes       String?
+  deletedAt   DateTime?         @map("deleted_at")
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
+
+  @@index([doctorId, dateTime])
+  @@index([patientId])
+  @@map("appointments")
+}
+
+model MedicalRecord {
+  id          String    @id @default(uuid())
+  patientId   String    @map("patient_id")
+  patient     Patient   @relation(fields: [patientId], references: [id])
+  doctorId    String    @map("doctor_id")
+  doctor      Doctor    @relation(fields: [doctorId], references: [id])
+  diagnosis   String
+  prescription String?
+  notes       String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@index([patientId])
+  @@map("medical_records")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?  @map("user_id")
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  resource  String
+  ipAddress String?  @map("ip_address")
+  details   String?
+  timestamp DateTime @default(now())
+
+  @@index([userId])
+  @@index([resource])
+  @@map("audit_logs")
+}

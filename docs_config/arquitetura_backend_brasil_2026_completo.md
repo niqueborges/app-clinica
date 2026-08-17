@@ -194,39 +194,36 @@ Fernanda e medica e atende 30 pacientes por dia. Ela precisa de agendamento onli
 | Validacao         | Zod + class-validator | Schemas + decoradores NestJS                            |
 | Autenticacao      | JWT + Refresh Token   | Melhor que Nivel 1                                      |
 
-### Arquitetura (Modular, DDD leve)
+### Arquitetura (Padrão Modular NestJS / Vertical Slice)
 
 ```
 src/
-├── domain/                         # DDD leve
-│   ├── entities/                   # Appointment, Patient, Doctor
-│   ├── value-objects/              # Email, PhoneNumber, CPF
-│   ├── events/                     # AppointmentCreated, ReminderSent
-│   └── errors/                     # DomainError base
-├── application/                    # Orquestracao
-│   ├── modules/
-│   │   ├── auth/                   # Login, JWT, guards, roles
-│   │   ├── appointments/           # Agendar, cancelar, listar
-│   │   ├── patients/               # Prontuario, historico
-│   │   ├── notifications/          # Jobs de SMS/email
-│   │   └── audit/                  # Log de atividades (LGPD)
-│   ├── dto/                        # Input/output tipado
-│   ├── guards/                     # AuthGuard, RolesGuard
-│   ├── interceptors/               # Logging, performance, error handling
-│   └── pipes/                      # Validacao ZodPipe
-├── infrastructure/                 # Implementacoes
-│   ├── database/                   # Prisma + migrations
-│   ├── messaging/                  # Twilio adapter, SendGrid adapter
-│   ├── queue/                      # Bull queue, job handlers
-│   ├── http/                       # Controllers, swagger docs
-│   ├── middleware/                 # Logging, rate limit
-│   └── config/                     # Redis, secrets
-├── shared/                         # Utils, constants
-├── Dockerfile
-├── docker-compose.yml
-├── .dockerignore
-├── .env.example
-└── README.md
+├── database/                       # Persistência e Driver Adapter PG
+│   ├── prisma.service.ts           # Prisma Client com Driver Adapter PG
+│   └── prisma.module.ts            # Módulo global de banco de dados
+├── common/                         # Recursos transversais e compartilhados
+│   ├── decorators/                 # @Roles(), @CurrentUser()
+│   ├── guards/                     # JwtAuthGuard, RolesGuard
+│   ├── interceptors/               # AuditInterceptor, LoggingInterceptor
+│   ├── filters/                    # GlobalExceptionFilter
+│   └── pipes/                      # ZodValidationPipe
+├── modules/                        # Módulos de domínio e orquestração (alta coesão)
+│   ├── auth/                       # AuthModule, AuthService, AuthController, DTOs, JwtStrategy
+│   ├── appointments/               # AppointmentsModule, Service, Controller, DTOs, Cache Redis
+│   ├── patients/                   # PatientsModule, Service, Controller, DTOs
+│   ├── medical-records/            # MedicalRecordsModule, Service, Controller, DTOs (RLS)
+│   ├── notifications/              # NotificationsModule, Service, BullMQ Processor (Twilio/SendGrid)
+│   └── audit/                      # AuditModule, AuditService, Modelagem LGPD
+├── app.controller.spec.ts          # Testes unitários do controller raiz
+├── app.controller.ts               # Health check endpoint
+├── app.service.ts                  # Lógica do health check
+├── app.module.ts                   # Módulo raiz da aplicação
+└── main.ts                         # Bootstrap NestJS, Helmet, CORS, Swagger, Pino Logger
+Dockerfile                          # Build multi-estágio otimizado
+docker-compose.yml                  # PostgreSQL 16 + Redis 7 + App
+.dockerignore
+.env.example
+README.md
 ```
 
 ### Seguranca (Aprofundada)

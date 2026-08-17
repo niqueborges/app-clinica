@@ -125,7 +125,7 @@ frontend/dist/
 ```env
 PORT=3000
 NODE_ENV=development
-DATABASE_URL=postgresql://postgres:dev@localhost:5432/clinica
+DATABASE_URL=postgresql://postgres:dev@localhost:5433/clinica
 REDIS_HOST=localhost
 REDIS_PORT=6379
 JWT_SECRET=dev-secret-change-in-prod-super-secure-key-123456
@@ -162,7 +162,7 @@ services:
   db:
     image: postgres:16-alpine
     ports:
-      - '5432:5432'
+      - '5433:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
     environment:
@@ -447,6 +447,10 @@ git checkout develop
 git pull origin develop
 git merge feature/init --no-ff -m "chore: merge branch 'feature/init' into develop"
 git push origin develop
+
+# Excluir branch da feature (local e remota) apos merge confirmado
+git branch -d feature/init
+git push origin --delete feature/init
 ```
 
 ---
@@ -660,7 +664,7 @@ async function main() {
   });
 
   // 2. Médica (Dra. Fernanda)
-  const doctorUser = await prisma.user.upsert({
+  await prisma.user.upsert({
     where: { email: 'dra.fernanda@clinica.com.br' },
     update: {},
     create: {
@@ -741,7 +745,7 @@ npx tsx prisma/seed.ts
 # Testar compilacao
 npm run build
 
-# Finalizar feature/prisma
+# Finalizar feature/prisma e mesclar na develop
 git add .
 git commit -m "feat(prisma): add schema models, PG adapter, migrations and seed"
 git push -u origin feature/prisma
@@ -750,6 +754,10 @@ git checkout develop
 git pull origin develop
 git merge feature/prisma --no-ff -m "chore: merge branch 'feature/prisma' into develop"
 git push origin develop
+
+# Excluir branch da feature (local e remota) apos merge confirmado
+git branch -d feature/prisma
+git push origin --delete feature/prisma
 ```
 
 ---
@@ -787,6 +795,10 @@ git checkout develop
 git pull origin develop
 git merge feature/auth-rbac --no-ff -m "chore: merge branch 'feature/auth-rbac' into develop"
 git push origin develop
+
+# Excluir branch da feature (local e remota) apos merge confirmado
+git branch -d feature/auth-rbac
+git push origin --delete feature/auth-rbac
 ```
 
 ---
@@ -825,6 +837,10 @@ git checkout develop
 git pull origin develop
 git merge feature/appointments --no-ff -m "chore: merge branch 'feature/appointments' into develop"
 git push origin develop
+
+# Excluir branch da feature (local e remota) apos merge confirmado
+git branch -d feature/appointments
+git push origin --delete feature/appointments
 ```
 
 ---
@@ -862,6 +878,10 @@ git checkout develop
 git pull origin develop
 git merge feature/medical-records --no-ff -m "chore: merge branch 'feature/medical-records' into develop"
 git push origin develop
+
+# Excluir branch da feature (local e remota) apos merge confirmado
+git branch -d feature/medical-records
+git push origin --delete feature/medical-records
 ```
 
 ---
@@ -896,6 +916,10 @@ git checkout develop
 git pull origin develop
 git merge feature/notifications-queue --no-ff -m "chore: merge branch 'feature/notifications-queue' into develop"
 git push origin develop
+
+# Excluir branch da feature (local e remota) apos merge confirmado
+git branch -d feature/notifications-queue
+git push origin --delete feature/notifications-queue
 ```
 
 ---
@@ -918,6 +942,23 @@ npm install
 npm install axios lucide-react
 npm run build
 cd ..
+```
+
+### 7.3 Comandos de Teste e Transição
+
+```bash
+git add .
+git commit -m "feat(frontend): setup React Vite SPA for clinic dashboard"
+git push -u origin feature/frontend
+
+git checkout develop
+git pull origin develop
+git merge feature/frontend --no-ff -m "chore: merge branch 'feature/frontend' into develop"
+git push origin develop
+
+# Excluir branch da feature (local e remota) apos merge confirmado
+git branch -d feature/frontend
+git push origin --delete feature/frontend
 ```
 
 ---
@@ -950,7 +991,7 @@ curl http://localhost:3000/api/health
 ### 8.3 Merge Final para Produção
 
 ```bash
-# 1. Integrar na develop
+# 1. Integrar na develop e limpar branch da feature
 git add .
 git commit -m "feat(deploy): production docker compose and healthcheck setup"
 git push -u origin feature/deploy
@@ -959,6 +1000,10 @@ git checkout develop
 git pull origin develop
 git merge feature/deploy --no-ff -m "chore: merge branch 'feature/deploy' into develop"
 git push origin develop
+
+# Excluir branch da feature deploy (local e remota)
+git branch -d feature/deploy
+git push origin --delete feature/deploy
 
 # 2. Publicar versao final na main
 git checkout main
