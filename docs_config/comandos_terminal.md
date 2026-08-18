@@ -50,10 +50,10 @@ git push -u origin feature/init
 
 ```bash
 # Dependencias de producao
-npm install @nestjs/common @nestjs/core @nestjs/platform-express @nestjs/config @nestjs/swagger @nestjs/jwt @nestjs/passport passport passport-jwt @prisma/client @prisma/adapter-pg pg ioredis @nestjs/bullmq bullmq zod class-validator class-transformer bcrypt helmet express-rate-limit nestjs-pino pino pino-http
+npm install @nestjs/common @nestjs/core @nestjs/platform-express @nestjs/config @nestjs/swagger @nestjs/jwt @nestjs/passport passport passport-jwt @prisma/client @prisma/adapter-pg pg ioredis @nestjs/bullmq bullmq zod class-validator class-transformer bcrypt helmet express-rate-limit nestjs-pino pino pino-http pino-pretty
 
 # Dependencias de desenvolvimento
-npm install -D @nestjs/cli @nestjs/schematics typescript @types/node @types/express @types/bcrypt @types/passport-jwt @types/multer prisma tsx rimraf pino-pretty eslint @typescript-eslint/parser @typescript-eslint/eslint-plugin eslint-config-prettier eslint-plugin-prettier prettier husky lint-staged @commitlint/cli @commitlint/config-conventional jest ts-jest @types/jest jest-mock-extended
+npm install -D @nestjs/cli @nestjs/schematics typescript @types/node @types/express @types/bcrypt @types/passport-jwt @types/multer prisma tsx rimraf eslint @typescript-eslint/parser @typescript-eslint/eslint-plugin eslint-config-prettier eslint-plugin-prettier prettier husky lint-staged @commitlint/cli @commitlint/config-conventional jest ts-jest @types/jest jest-mock-extended
 ```
 
 ### 1.3 Inicialização de Ferramental e Pastas
@@ -203,6 +203,7 @@ ENV NODE_ENV=production
 COPY package*.json ./
 RUN npm ci --omit=dev --ignore-scripts
 COPY --from=builder --chown=node:node /app/dist ./dist
+COPY --from=builder --chown=node:node /app/generated ./generated
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \

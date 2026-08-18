@@ -19,18 +19,18 @@ Template e guia definitivo de arquitetura backend para o projeto **A Clínica da
 
 ## Status de Execução das Branches
 
-| Branch                      | Responsabilidade                                                                                        | Status        |
-| :-------------------------- | :------------------------------------------------------------------------------------------------------ | :------------ |
-| main                        | Código em produção.                                                                                     | Planejado     |
-| develop                     | Branch de integração contínua.                                                                          | Ativo         |
-| feature/init                | Scaffold NestJS, TypeScript, Linter, Husky, Commitlint, CI e Health Check.                              | Concluído     |
-| feature/prisma              | Schema Prisma v7, Driver Adapter PG, Entidades, Migrations e Seed (Médicos, Recepcionistas, Pacientes). | Concluído     |
-| feature/auth-rbac           | Módulo de Autenticação: JWT + Refresh Token, Roles enum, Decorators @Roles(), Guards.                   | Concluído     |
-| feature/appointments        | Módulo de Agendamento: Conflito de horários, cancelamento com Soft Delete e Cache Redis.                | Concluído     |
-| feature/medical-records     | Módulo de Prontuário Eletrônico com isolamento de dados e trilha de Auditoria LGPD.                     | Concluído     |
-| feature/notifications-queue | Módulo de Filas: BullMQ + Redis, processadores assíncronos de SMS (Twilio) e Email.                     | PROXIMO PASSO |
-| feature/frontend            | Aplicação web (React + Vite + TypeScript) com painel médico, recepção e agendamento.                    | Pendente      |
-| feature/deploy              | Docker Compose (App + Postgres + Redis), Dockerfile multi-stage e healthchecks.                         | Pendente      |
+| Branch                      | Responsabilidade                                                                                        | Status    |
+| :-------------------------- | :------------------------------------------------------------------------------------------------------ | :-------- |
+| main                        | Código em produção.                                                                                     | Concluído |
+| develop                     | Branch de integração contínua.                                                                          | Ativo     |
+| feature/init                | Scaffold NestJS, TypeScript, Linter, Husky, Commitlint, CI e Health Check.                              | Concluído |
+| feature/prisma              | Schema Prisma v7, Driver Adapter PG, Entidades, Migrations e Seed (Médicos, Recepcionistas, Pacientes). | Concluído |
+| feature/auth-rbac           | Módulo de Autenticação: JWT + Refresh Token, Roles enum, Decorators @Roles(), Guards.                   | Concluído |
+| feature/appointments        | Módulo de Agendamento: Conflito de horários, cancelamento com Soft Delete e Cache Redis.                | Concluído |
+| feature/medical-records     | Módulo de Prontuário Eletrônico com isolamento de dados e trilha de Auditoria LGPD.                     | Concluído |
+| feature/notifications-queue | Módulo de Filas: BullMQ + Redis, processadores assíncronos de SMS (Twilio) e Email.                     | Concluído |
+| feature/frontend            | Aplicação web (React + Vite + TypeScript) com painel médico, recepção e agendamento.                    | Concluído |
+| feature/deploy              | Docker Compose (App + Postgres + Redis), Dockerfile multi-stage e healthchecks.                         | Concluído |
 
 ---
 
