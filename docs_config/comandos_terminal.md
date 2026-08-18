@@ -1685,6 +1685,7 @@ EOF
 
 ```bash
 npm run lint
+npm run lint:fix
 npx tsc --noEmit
 npm run test:ci
 npm run build
