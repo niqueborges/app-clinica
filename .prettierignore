@@ -3,4 +3,5 @@ node_modules
 coverage
 generated
 .env
-.env.example
+.env.example
+docs_config

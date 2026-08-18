@@ -38,7 +38,8 @@ src/generated/
 frontend/node_modules/
 frontend/dist/
 
-# Agents & AI
+# Agents & AI & Docs
 .agents/
 .claude/
 .windsurf/
+docs_config/
