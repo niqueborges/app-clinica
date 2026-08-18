@@ -42,3 +42,5 @@ frontend/dist/
 .agents/
 .claude/
 .windsurf/
+
+docs_config
