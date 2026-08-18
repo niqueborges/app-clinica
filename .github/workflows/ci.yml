@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: clinica_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout do repositorio
+        uses: actions/checkout@v4
+
+      - name: Setup do Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Gerar Prisma Client
+        run: npx prisma generate
+
+      - name: Checagem de Tipos TypeScript
+        run: npx tsc --noEmit
+
+      - name: Validar Linter (ESLint)
+        run: npm run lint
+
+      - name: Validar Formatacao (Prettier)
+        run: npm run format:check
+
+      - name: Executar Testes Unitarios
+        run: npm run test:ci
+        env:
+          DATABASE_URL: postgresql://postgres:test@localhost:5432/clinica_test
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+          JWT_SECRET: ci-test-secret-key-123456789
+          JWT_REFRESH_SECRET: ci-test-refresh-secret-key-987654321
+          NODE_ENV: test
+
+      - name: Compilar Projeto (Build)
+        run: npm run build
