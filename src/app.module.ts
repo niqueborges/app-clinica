@@ -6,6 +6,8 @@ import { AppService } from './app.service';
 import { PrismaModule } from './database/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { AppointmentsModule } from './modules/appointments/appointments.module';
+import { AuditModule } from './modules/audit/audit.module';
+import { MedicalRecordsModule } from './modules/medical-records/medical-records.module';
 
 @Module({
   imports: [
@@ -30,6 +32,8 @@ import { AppointmentsModule } from './modules/appointments/appointments.module';
     PrismaModule,
     AuthModule,
     AppointmentsModule,
+    AuditModule,
+    MedicalRecordsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
