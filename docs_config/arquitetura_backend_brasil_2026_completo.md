@@ -249,19 +249,19 @@ README.md
 FROM node:22-alpine as builder
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci
+RUN npm ci --ignore-scripts
 COPY . .
 RUN npm run build
 
 FROM node:22-alpine
 WORKDIR /app
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/dist ./dist
 COPY package*.json ./
+RUN npm ci --omit=dev --ignore-scripts
+COPY --from=builder /app/dist ./dist
 USER node
-HEALTHCHECK --interval=30s CMD node dist/health.js
+HEALTHCHECK --interval=30s CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1
 EXPOSE 3000
-CMD ["node", "dist/main.js"]
+CMD ["node", "dist/src/main.js"]
 
 # docker-compose.yml (completo)
 services:
@@ -473,20 +473,20 @@ src/
 FROM node:22-alpine as builder
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci --only=production && npm cache clean --force
+RUN npm ci --ignore-scripts
 COPY . .
 RUN npm run build
 
 FROM node:22-alpine
 WORKDIR /app
 RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
-COPY --from=builder /app/node_modules ./node_modules
+COPY package*.json ./
+RUN npm ci --omit=dev --ignore-scripts
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/package*.json ./
 USER nodejs
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s CMD node dist/health.js
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1
 EXPOSE 3000
-CMD ["node", "dist/main.js"]
+CMD ["node", "dist/src/main.js"]
 
 # docker-compose.yml (local dev - simula producao)
 services:
@@ -795,7 +795,7 @@ src/
 FROM node:22-alpine as builder
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci --production=false
+RUN npm ci --ignore-scripts
 COPY . .
 RUN npm run build && npm prune --production
 
@@ -803,14 +803,14 @@ FROM node:22-alpine
 WORKDIR /app
 RUN apk add --no-cache dumb-init  # Init process para sinais
 RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
-COPY --from=builder /app/node_modules ./node_modules
+COPY package*.json ./
+RUN npm ci --omit=dev --ignore-scripts
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/package*.json ./
 USER nodejs
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 CMD node dist/health.js
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1
 EXPOSE 3000
 ENTRYPOINT ["/sbin/dumb-init", "--"]
-CMD ["node", "dist/main.js"]
+CMD ["node", "dist/src/main.js"]
 
 # docker-compose.yml (local - dev, replica prod)
 version: '3.9'
