@@ -22,13 +22,13 @@ Template e guia definitivo de arquitetura backend para o projeto **A Clínica da
 | Branch                      | Responsabilidade                                                                                        | Status        |
 | :-------------------------- | :------------------------------------------------------------------------------------------------------ | :------------ |
 | main                        | Código em produção.                                                                                     | Planejado     |
-| develop                     | Branch de integração contínua.                                                                          | Planejado     |
+| develop                     | Branch de integração contínua.                                                                          | Ativo         |
 | feature/init                | Scaffold NestJS, TypeScript, Linter, Husky, Commitlint, CI e Health Check.                              | Concluído     |
 | feature/prisma              | Schema Prisma v7, Driver Adapter PG, Entidades, Migrations e Seed (Médicos, Recepcionistas, Pacientes). | Concluído     |
 | feature/auth-rbac           | Módulo de Autenticação: JWT + Refresh Token, Roles enum, Decorators @Roles(), Guards.                   | Concluído     |
-| feature/appointments        | Módulo de Agendamento: Conflito de horários, cancelamento com Soft Delete e Cache Redis.                | PROXIMO PASSO |
-| feature/medical-records     | Módulo de Prontuário Eletrônico com isolamento de dados e trilha de Auditoria LGPD.                     | Pendente      |
-| feature/notifications-queue | Módulo de Filas: BullMQ + Redis, processadores assíncronos de SMS (Twilio) e Email.                     | Pendente      |
+| feature/appointments        | Módulo de Agendamento: Conflito de horários, cancelamento com Soft Delete e Cache Redis.                | Concluído     |
+| feature/medical-records     | Módulo de Prontuário Eletrônico com isolamento de dados e trilha de Auditoria LGPD.                     | Concluído     |
+| feature/notifications-queue | Módulo de Filas: BullMQ + Redis, processadores assíncronos de SMS (Twilio) e Email.                     | PROXIMO PASSO |
 | feature/frontend            | Aplicação web (React + Vite + TypeScript) com painel médico, recepção e agendamento.                    | Pendente      |
 | feature/deploy              | Docker Compose (App + Postgres + Redis), Dockerfile multi-stage e healthchecks.                         | Pendente      |
 
@@ -49,24 +49,23 @@ Template e guia definitivo de arquitetura backend para o projeto **A Clínica da
 ### 1.2 Arquivos Entregues
 
 - Configurações de Tooling e CI: `package.json`, `tsconfig.json`, `tsconfig.build.json`, `nest-cli.json`, `.github/workflows/ci.yml`, `eslint.config.mjs`, `jest.config.cjs`, `commitlint.config.mjs`, `.prettierrc.json`, `.lintstagedrc.json`, `.husky/commit-msg`, `.husky/pre-commit`, `.husky/pre-push`.
-- Containers: `Dockerfile` (multi-stage com non-root user `node`), `docker-compose.yml` (PostgreSQL 16 + Redis 7 + App).
+- Containers: `Dockerfile` (multi-stage com Node 22 e non-root user `node`), `docker-compose.yml` (PostgreSQL 16 + Redis 7 + App).
 - Prisma: `prisma.config.ts`, `prisma/schema.prisma`.
 - Bootstrap NestJS: `src/main.ts`, `src/app.module.ts`, `src/app.controller.ts`, `src/app.service.ts`, `src/app.controller.spec.ts`.
 
 ### 1.3 Comandos de Validação
 
 ```bash
+npm run lint:fix
 npx tsc --noEmit
-npm run lint
-npm run format:check
-npm test
+npm run test:ci
 npm run build
 docker compose config
 ```
 
 ---
 
-## PASSO 2 — feature/prisma [PROXIMO PASSO]
+## PASSO 2 — feature/prisma [CONCLUÍDO]
 
 **Objetivo:** Modelagem relacional do banco de dados da clínica, suporte a LGPD, roles e migrations.
 
@@ -90,7 +89,7 @@ npm run prisma:seed
 
 ---
 
-## PASSO 3 — feature/auth-rbac
+## PASSO 3 — feature/auth-rbac [CONCLUÍDO]
 
 **Objetivo:** Autenticação de usuários, emissão de Refresh Tokens e controle granular de permissões.
 
@@ -103,7 +102,7 @@ npm run prisma:seed
 
 ---
 
-## PASSO 4 — feature/appointments
+## PASSO 4 — feature/appointments [CONCLUÍDO]
 
 **Objetivo:** Motor de agendamento de consultas com prevenção de conflito de agenda, cancelamento e cache de horários.
 
@@ -115,7 +114,7 @@ npm run prisma:seed
 
 ---
 
-## PASSO 5 — feature/medical-records & audit
+## PASSO 5 — feature/medical-records & audit [CONCLUÍDO]
 
 **Objetivo:** Prontuários eletrônicos protegidos e registro obrigatório de auditoria LGPD.
 
@@ -127,7 +126,7 @@ npm run prisma:seed
 
 ---
 
-## PASSO 6 — feature/notifications-queue
+## PASSO 6 — feature/notifications-queue [PROXIMO PASSO]
 
 **Objetivo:** Filas assíncronas em segundo plano com BullMQ e Redis para comunicação com pacientes.
 

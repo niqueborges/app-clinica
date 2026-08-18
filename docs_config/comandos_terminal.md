@@ -190,14 +190,14 @@ volumes:
 EOF
 
 cat << 'EOF' > Dockerfile
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package*.json ./
@@ -254,7 +254,7 @@ jobs:
       - name: Setup do Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Instalar dependencias
@@ -2237,6 +2237,7 @@ EOF
 
 ```bash
 npm run lint
+npm run lint:fix
 npx tsc --noEmit
 npm run test:ci
 npm run build

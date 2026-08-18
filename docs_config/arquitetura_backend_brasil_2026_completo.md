@@ -246,14 +246,14 @@ README.md
 
 ```yaml
 # Dockerfile multi-stage (otimizado)
-FROM node:20-alpine as builder
+FROM node:22-alpine as builder
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM node:20-alpine
+FROM node:22-alpine
 WORKDIR /app
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
@@ -470,14 +470,14 @@ src/
 
 ```yaml
 # Dockerfile multi-stage + security
-FROM node:20-alpine as builder
+FROM node:22-alpine as builder
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --only=production && npm cache clean --force
 COPY . .
 RUN npm run build
 
-FROM node:20-alpine
+FROM node:22-alpine
 WORKDIR /app
 RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
 COPY --from=builder /app/node_modules ./node_modules
@@ -792,14 +792,14 @@ src/
 
 ```yaml
 # Dockerfile ultra otimizado
-FROM node:20-alpine as builder
+FROM node:22-alpine as builder
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --production=false
 COPY . .
 RUN npm run build && npm prune --production
 
-FROM node:20-alpine
+FROM node:22-alpine
 WORKDIR /app
 RUN apk add --no-cache dumb-init  # Init process para sinais
 RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
@@ -1352,7 +1352,7 @@ Verificar:
 | ---------------------------------------- | ----------------------------- |
 | "Funciona na minha máquina"              | Mesma imagem dev/staging/prod |
 | npm install localmente (versões flutuam) | Versão fixa no Dockerfile     |
-| Ruby 2.7 vs 3.0 bugs                     | Node 20.0 em tudo             |
+| Ruby 2.7 vs 3.0 bugs                     | Node 22 LTS em tudo           |
 | Deploy: SSH, git pull, npm install       | Deploy: docker run imagem:tag |
 | 45 min setup novo dev                    | 5 min: docker compose up      |
 
@@ -1369,7 +1369,7 @@ Verificar:
 3. .dockerignore: exclui node_modules, .git
    → Menos bytes copiados
 
-4. Alpine base: node:20-alpine (45MB) vs node:20 (1GB)
+4. Alpine base: node:22-alpine (45MB) vs node:22 (1GB)
    → Minimal, seguro
 
 5. Non-root user: USER nodejs
